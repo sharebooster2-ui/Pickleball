@@ -1089,3 +1089,13 @@ initialize()
     console.error("Startup failed:", error.message);
     process.exit(1);
   });
+
+// ==================================
+// Pickleball Registration Website
+//
+// This project is developed for a pickleball registration
+// website, including user registration, login, bookings,
+// payments, profiles, and administrative features.
+//
+// Developed by: Joshua Apostol
+// ==================================

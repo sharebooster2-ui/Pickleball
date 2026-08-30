@@ -106,7 +106,7 @@ new MutationObserver(() => applyBranding()).observe(document.body, {
   subtree: true,
 });
 
-// Iisang paraan ng pagtawag sa mga endpoint ng server
+// A unified way of calling the server's endpoints.
 async function api(url, options = {}) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
