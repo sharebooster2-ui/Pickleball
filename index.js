@@ -1083,12 +1083,27 @@ async function initialize() {
   console.log("PickleBalls database ready");
 }
 
-initialize()
-  .then(() => app.listen(port, "0.0.0.0", () => console.log(`PickleBalls listening on ${port}`)))
-  .catch((error) => {
-    console.error("Startup failed:", error.message);
-    process.exit(1);
-  });
+const initialization = initialize();
+
+if (process.env.VERCEL) {
+  module.exports = async (req, res) => {
+    try {
+      await initialization;
+      return app(req, res);
+    } catch (error) {
+      console.error("Startup failed:", error.message);
+      res.statusCode = 500;
+      return res.end("Server startup failed.");
+    }
+  };
+} else {
+  initialization
+    .then(() => app.listen(port, "0.0.0.0", () => console.log(`PickleBalls listening on ${port}`)))
+    .catch((error) => {
+      console.error("Startup failed:", error.message);
+      process.exit(1);
+    });
+}
 
 // ==================================
 // Pickleball Registration Website
