@@ -911,13 +911,19 @@ button {
 .event-status {
   display: inline-flex;
   border-radius: 30px;
-  padding: 6px 10px;
+  padding: 4px 8px;
   background: rgba(200, 244, 106, 0.15);
   color: var(--lime);
-  font: 10px "DM Mono";
+  font: 9px "DM Mono";
   position: absolute;
   right: 19px;
   top: 20px;
+}
+.event-status .pill {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
 }
 .activity-list {
   display: flex;
