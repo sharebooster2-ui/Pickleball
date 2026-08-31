@@ -56,6 +56,25 @@ const clockText = (value) => {
   const displayHour = hour % 12 || 12;
   return `${displayHour}:${String(minute || 0).padStart(2, "0")} ${suffix}`;
 };
+const timeRangeText = (start, end) =>
+  `${clockText(start)} – ${clockText(end)}`;
+const scheduleTimeText = (start, end) =>
+  end ? timeRangeText(start, end) : clockText(start);
+const closingText = (value) => {
+  const raw = String(value || "").slice(0, 5);
+  const [hour, minute] = raw.split(":").map(Number);
+  const minutes = hour * 60 + minute;
+  return Number.isFinite(minutes) && minutes <= 21 * 60
+    ? clockText(value)
+    : "9:00 PM";
+};
+const closingInputValue = (value) => {
+  const raw = String(value || "21:00").slice(0, 5);
+  const [hour, minute] = raw.split(":").map(Number);
+  return Number.isFinite(hour * 60 + minute) && hour * 60 + minute <= 21 * 60
+    ? raw
+    : "21:00";
+};
 const localDate = (date = new Date()) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -332,7 +351,7 @@ async function renderDashboard() {
       <div class="stat-card"><div class="stat-top"><span>Unread updates</span><span class="stat-icon">◌</span></div><div class="stat-value">${dashboard.unreadNotifications}</div><div class="stat-help">From PickleBalls admins</div></div></div>
     <div class="section-heading"><div><p class="eyebrow">BOOK YOUR NEXT GAME</p><h2 class="section-title">Courts near you</h2><p class="section-subtitle">Choose a court, check the details, and save your playing time.</p></div><button class="text-link" data-page="events">View all courts →</button></div>
     <div class="court-grid">${events.events.slice(0, 3).map(courtCard).join("") || `<div class="card empty-courts"><div class="empty-state"><div>⌖</div><strong>No courts available yet</strong><p>New courts will appear here when they are published.</p></div></div>`}</div>
-    <div class="dashboard-grid"><div class="card"><div class="card-title"><h3>Next on your calendar</h3><button class="text-link" data-page="registrations">View all →</button></div>${next ? `<div class="next-event"><span class="event-status">${esc(next.status === "confirmed" ? "Confirmed" : "Booking request")}</span><p class="eyebrow">UPCOMING EVENT</p><h3>${esc(next.name)}</h3><div class="event-meta"><span>◷ ${dateText(next.event_date)}${next.slot_times ? ` · ${esc(next.slot_times)}` : ""}</span><span>⌖ ${esc(next.location)}</span></div></div>` : `<div class="empty-state"><div>✦</div><strong>No games booked yet</strong><p>Find an event and save your first spot.</p><button class="button primary small" data-page="events" style="margin-top:15px">Browse events</button></div>`}</div>
+      <div class="dashboard-grid"><div class="card"><div class="card-title"><h3>Next on your calendar</h3><button class="text-link" data-page="registrations">View all →</button></div>${next ? `<div class="next-event"><span class="event-status">${esc(next.status === "confirmed" ? "Confirmed" : "Booking request")}</span><p class="eyebrow">UPCOMING EVENT</p><h3>${esc(next.name)}</h3><div class="event-meta"><span>◷ ${dateText(next.event_date)}${next.slot_times ? ` · ${esc(next.slot_times).replaceAll("\\n", "<br>")}` : ""}</span><span>⌖ ${esc(next.location)}</span></div></div>` : `<div class="empty-state"><div>✦</div><strong>No games booked yet</strong><p>Find an event and save your first spot.</p><button class="button primary small" data-page="events" style="margin-top:15px">Browse events</button></div>`}</div>
       <div class="card"><div class="card-title"><h3>Recent activity</h3><button class="text-link" data-page="notifications">See updates →</button></div><div class="activity-list">${
         notifications.notifications
           .slice(0, 3)
@@ -363,19 +382,19 @@ function courtCard(event, index = state.events.indexOf(event)) {
     {
       surface: "Sport Court",
       type: "Indoor",
-      hours: "8:00 AM–11:00 PM",
+       hours: "8:00 AM–9:00 PM",
       amenities: ["Parking", "Restrooms", "Lights"],
     },
     {
       surface: "Pickleball Court",
       type: "Outdoor",
-      hours: "7:00 AM–10:00 PM",
+       hours: "7:00 AM–9:00 PM",
       amenities: ["Seating", "Lights", "Parking"],
     },
     {
       surface: "Sport Court",
       type: "Indoor",
-      hours: "6:00 AM–12:00 AM",
+       hours: "6:00 AM–9:00 PM",
       amenities: ["Restrooms", "Food & coffee", "Lights"],
     },
   ][Math.abs(index) % 3];
@@ -388,8 +407,8 @@ function courtCard(event, index = state.events.indexOf(event)) {
     ? clockText(event.opening_time)
     : meta.hours.split("–")[0];
   const closing = event.closing_time
-    ? clockText(event.closing_time)
-    : meta.hours.split("–")[1];
+    ? closingText(event.closing_time)
+    : "9:00 PM";
   const image = event.image_url
     ? `<img src="${esc(event.image_url)}" alt="${esc(event.name)} court" loading="lazy">`
     : "";
@@ -454,9 +473,7 @@ function renderCourtDetails() {
   const opening = court.opening_time
     ? clockText(court.opening_time)
     : "7:00 AM";
-  const closing = court.closing_time
-    ? clockText(court.closing_time)
-    : "11:00 PM";
+  const closing = closingText(court.closing_time);
   const image = court.image_url
     ? `<img src="${esc(court.image_url)}" alt="${esc(court.name)} court">`
     : "";
@@ -473,7 +490,15 @@ function renderCourtDetails() {
       const availability = past ? "past" : slot.availability;
       const selected = state.selectedSlotIds.includes(slot.id);
       const disabled = availability !== "open";
-      return `<button type="button" class="slot-cell ${availability} ${selected ? "selected" : ""}" data-slot-id="${slot.id}" ${disabled ? "disabled" : ""}><span>${availability === "open" || selected ? "OPEN" : availability === "booked" ? "BOOKED" : availability === "past" ? "PAST" : "UNAVAILABLE"}</span>${availability === "open" || selected ? `<strong>${money(slot.price)}</strong>` : ""}</button>`;
+      const slotState =
+        availability === "open" || selected
+          ? "OPEN"
+          : availability === "booked"
+            ? "BOOKED"
+            : availability === "past"
+              ? "PAST"
+              : "UNAVAILABLE";
+      return `<button type="button" class="slot-cell ${availability} ${selected ? "selected" : ""}" data-slot-id="${slot.id}" ${disabled ? "disabled" : ""}><span class="slot-time">${esc(timeRangeText(slot.start_time, slot.end_time))}</span><span class="slot-state">${slotState}</span>${availability === "open" || selected ? `<strong>${money(slot.price)}</strong>` : ""}</button>`;
     })
     .join("");
   const selectedSlots = slots.filter((slot) =>
@@ -506,12 +531,12 @@ function renderCourtDetails() {
     <button class="back-link" data-page="events">← Back to courts</button>
     <div class="court-detail-hero"><div class="court-detail-image court-media-0">${image}</div><div><div class="court-card-badges"><span>${esc(court.category || "Indoor")}</span><span>${esc(court.surface || "Sport Court")}</span></div><p class="eyebrow">COURT DETAILS</p><h1>${esc(court.name)}</h1><p class="court-detail-location">⌖ ${esc(court.location)}</p><div class="detail-rating">${ratingLabel}</div></div></div>
     <div class="court-detail-layout"><div>
-      <section class="card slot-picker"><div class="detail-section-heading"><div><p class="eyebrow">BOOK YOUR PLAYING TIME</p><h2>Choose your slots</h2><p>Select one or more open hours for this court.</p></div><div class="date-navigator"><button type="button" class="date-step" data-slot-date-step="-1">‹</button><label><input id="slot-date" type="date" value="${esc(state.selectedSlotDate)}"><span>${dateText(`${state.selectedSlotDate}T00:00:00`)}</span></label><button type="button" class="date-step" data-slot-date-step="1">›</button></div></div>
+      <section class="card slot-picker"><div class="detail-section-heading"><div><p class="eyebrow">BOOK YOUR PLAYING TIME</p><h2>Choose your slots</h2><p>Select one or more open hours for this court.</p></div><label class="date-picker"><span>Choose a date</span><input id="slot-date" type="date" value="${esc(state.selectedSlotDate)}"></label></div>
       <div class="slot-board"><div class="slot-board-header"><span>Time</span><strong>${esc(court.name)}</strong><small>${esc(court.category || "Court")}</small></div>${slotCells || `<div class="empty-slot-state">No slots are available for this date.</div>`}</div>
       <div class="slot-legend"><span><i class="legend-dot open"></i>Open</span><span><i class="legend-dot selected"></i>Selected</span><span><i class="legend-dot booked"></i>Booked</span><span><i class="legend-dot past"></i>Past</span></div>
-      <div class="slot-helper">Tap open cells to build your booking. Selected slots will be added to the summary below.</div></section>
+       <div class="slot-helper">Tap open time slots to build your booking. Selected slots will be added to the summary below.</div></section>
       <section class="card court-info-detail"><div class="detail-section-heading"><div><p class="eyebrow">ABOUT THIS COURT</p><h2>Court details</h2></div></div><div class="detail-grid"><div><span>Surface</span><strong>${esc(court.surface || "Sport Court")}</strong></div><div><span>Hours</span><strong>${esc(opening)}–${esc(closing)}</strong></div><div><span>Contact</span><strong>${esc(court.contact || "Contact admin")}</strong></div><div><span>Location</span><strong>${esc(court.location)}</strong></div></div><div class="rate-list"><span>Rates by time</span>${rules.map((rule) => `<div><strong>${esc(clockText(rule.start))} – ${esc(clockText(rule.end))}: ${money(rule.price)} /hr</strong><small>Every day</small></div>`).join("") || `<div><strong>${money(court.fee)} /hr</strong><small>Standard rate</small></div>`}</div><div class="amenity-list">${(amenities.length ? amenities : ["Parking", "Restrooms", "Lights"]).map((amenity) => `<span>${esc(amenity)}</span>`).join("")}</div></section>
-    </div><aside class="card booking-summary"><p class="eyebrow">YOUR BOOKING</p><h2>Selected slots</h2><div id="selected-slot-list">${selectedSlots.length ? selectedSlots.map((slot) => `<div class="selected-slot-line"><span>${clockText(slot.start_time)}–${clockText(slot.end_time)}</span><strong>${money(slot.price)}</strong></div>`).join("") : `<div class="summary-empty">No slots selected yet.</div>`}</div><div class="summary-total"><span>Total</span><strong id="slot-total">${money(total)}</strong></div><button id="confirm-slot-booking" class="button primary full" ${selectedSlots.length ? "" : "disabled"}>Request booking ↗</button><small class="summary-note">Your request will be reviewed by the court admin.</small></aside></div>
+    </div><aside class="card booking-summary"><p class="eyebrow">YOUR BOOKING</p><h2>Selected slots</h2><div id="selected-slot-list">${selectedSlots.length ? selectedSlots.map((slot) => `<div class="selected-slot-line"><span>${esc(timeRangeText(slot.start_time, slot.end_time))}</span><strong>${money(slot.price)}</strong></div>`).join("") : `<div class="summary-empty">No slots selected yet.</div>`}</div><div class="summary-total"><span>Total</span><strong id="slot-total">${money(total)}</strong></div><button id="confirm-slot-booking" class="button primary full" ${selectedSlots.length ? "" : "disabled"}>Request booking ↗</button><small class="summary-note">Your request will be reviewed by the court admin.</small></aside></div>
    </div><section class="card court-reviews"><div class="detail-section-heading"><div><p class="eyebrow">PLAYER FEEDBACK</p><h2>Ratings & reviews</h2><p>Ratings come from members who have an approved booking.</p></div><strong class="review-summary">${reviewCount ? `${Number(court.rating || 0).toFixed(1)} / 5` : "New court"}</strong></div>${reviewForm}<div class="review-list">${reviewList}</div></section>
    </div>`;
   const reviewFormElement = $("#court-review-form");
@@ -552,7 +577,7 @@ function updateBookingSummary() {
     ? selected
         .map(
           (slot) =>
-            `<div class="selected-slot-line"><span>${clockText(slot.start_time)}–${clockText(slot.end_time)}</span><strong>${money(slot.price)}</strong></div>`,
+            `<div class="selected-slot-line"><span>${esc(timeRangeText(slot.start_time, slot.end_time))}</span><strong>${money(slot.price)}</strong></div>`,
         )
         .join("")
     : `<div class="summary-empty">No slots selected yet.</div>`;
@@ -591,7 +616,7 @@ async function renderRegistrations() {
   const data = await api("/api/registrations");
   state.registrations = data.registrations;
   $("#page-container").innerHTML =
-    `<div class="page"><div class="page-heading"><div><p class="eyebrow">YOUR COURT TIME</p><h1>My bookings</h1><p>Every court you’ve requested, all in one place.</p></div><button class="button lime small" data-page="events">Browse courts ↗</button></div><div class="card table-card"><table class="data-table"><thead><tr><th>Court</th><th>Date & location</th><th>Booked slots</th><th>Booking</th><th>Payment</th><th></th></tr></thead><tbody>${data.registrations.map((item) => `<tr><td><strong>${esc(item.name)}</strong><br><span style="font-size:10px;color:#9aa69f">${esc(item.category)}</span></td><td>${dateText(item.booking_date || item.event_date)}<br><span style="font-size:10px;color:#9aa69f">${esc(item.location)}</span></td><td>${item.slot_times ? `<span class="booking-slot-times">${esc(item.slot_times)}</span>` : "Court request"}</td><td>${statusPill(item.status)}</td><td>${item.payment_status ? statusPill(item.payment_status) : `<span class="pill draft">${item.status === "confirmed" ? "Not submitted" : "Awaiting approval"}</span>`}</td><td>${item.status === "confirmed" && (!item.payment_status || item.payment_status === "rejected") ? `<button class="button ghost small pay-for-event" data-id="${item.id}">Pay now</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty-state"><strong>No bookings yet</strong><p>Browse courts to request your next spot.</p></div></td></tr>`}</tbody></table></div></div>`;
+    `<div class="page"><div class="page-heading"><div><p class="eyebrow">YOUR COURT TIME</p><h1>My bookings</h1><p>Every court you’ve requested, all in one place.</p></div><button class="button lime small" data-page="events">Browse courts ↗</button></div><div class="card table-card"><table class="data-table"><thead><tr><th>Court</th><th>Date & location</th><th>Booked slots</th><th>Booking</th><th>Payment</th><th></th></tr></thead><tbody>${data.registrations.map((item) => `<tr><td><strong>${esc(item.name)}</strong><br><span style="font-size:10px;color:#9aa69f">${esc(item.category)}</span></td><td>${dateText(item.booking_date || item.event_date)}<br><span style="font-size:10px;color:#9aa69f">${esc(item.location)}</span></td><td>${item.slot_times ? `<span class="booking-slot-times">${esc(item.slot_times).replaceAll("\\n", "<br>")}</span>` : "Court request"}</td><td>${statusPill(item.status)}</td><td>${item.payment_status ? statusPill(item.payment_status) : `<span class="pill draft">${item.status === "confirmed" ? "Not submitted" : "Awaiting approval"}</span>`}</td><td>${item.status === "confirmed" && (!item.payment_status || item.payment_status === "rejected") ? `<button class="button ghost small pay-for-event" data-id="${item.id}">Pay now</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty-state"><strong>No bookings yet</strong><p>Browse courts to request your next spot.</p></div></td></tr>`}</tbody></table></div></div>`;
 }
 
 // Renders the manual schedule and automatic court bookings.
@@ -601,7 +626,7 @@ async function renderSchedule() {
   $("#page-container").innerHTML =
     `<div class="page"><div class="page-heading"><div><p class="eyebrow">PLAN YOUR COURT TIME</p><h1>My schedule</h1><p>Save the days and times you plan to play so your court calendar stays organized.</p></div></div>
     <div class="payment-layout schedule-layout"><div class="card"><div class="card-title"><h3>Add a playing schedule</h3><span class="stat-icon">◷</span></div><form id="schedule-form" class="modal-form"><input type="hidden" name="id"><label class="full-width">Title<input required name="title" placeholder="Saturday morning games"></label><label>Date<input required type="date" name="scheduleDate"></label><label>Start time<input required type="time" name="startTime"></label><label>End time (optional)<input type="time" name="endTime"></label><label class="full-width">Location<input required name="location" placeholder="BGC Pickleball Club"></label><label class="full-width">Notes (optional)<textarea name="notes" placeholder="Players, court number, or anything else"></textarea></label><div class="modal-actions"><button type="button" class="button ghost hidden" id="cancel-schedule-edit">Cancel edit</button><button class="button primary" type="submit">Save schedule ↗</button></div></form></div>
-     <div class="card table-card"><div class="card-title"><h3>Upcoming play times</h3><span class="pill confirmed">${data.schedules.length} saved</span></div><table class="data-table"><thead><tr><th>Schedule</th><th>Date & time</th><th>Location</th><th>Notes</th><th></th></tr></thead><tbody>${data.schedules.map((item) => `<tr><td><strong>${esc(item.title)}</strong>${item.source === "booking" ? `<br><span class="schedule-source">Court booking</span>` : ""}</td><td>${dateText(item.schedule_date)}<br><small>${esc(item.start_time.slice(0, 5))}${item.end_time ? `–${esc(item.end_time.slice(0, 5))}` : ""}</small></td><td>${esc(item.location)}</td><td>${esc(item.notes || "—")} ${item.booking_status ? statusPill(item.booking_status) : ""}</td><td>${item.source === "booking" ? "—" : `<button class="button ghost small edit-schedule" data-id="${item.id}">Edit</button> <button class="button danger small delete-schedule" data-id="${item.id}">Delete</button>`}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty-state"><strong>No playing schedules yet</strong><p>Add your next court time on the left.</p></div></td></tr>`}</tbody></table></div></div></div>`;
+     <div class="card table-card"><div class="card-title"><h3>Upcoming play times</h3><span class="pill confirmed">${data.schedules.length} saved</span></div><table class="data-table"><thead><tr><th>Schedule</th><th>Date & time</th><th>Location</th><th>Notes</th><th></th></tr></thead><tbody>${data.schedules.map((item) => `<tr><td><strong>${esc(item.title)}</strong>${item.source === "booking" ? `<br><span class="schedule-source">Court booking</span>` : ""}</td><td>${dateText(item.schedule_date)}<br><small>${esc(scheduleTimeText(item.start_time, item.end_time))}</small></td><td>${esc(item.location)}</td><td>${esc(item.notes || "—")} ${item.booking_status ? statusPill(item.booking_status) : ""}</td><td>${item.source === "booking" ? "—" : `<button class="button ghost small edit-schedule" data-id="${item.id}">Edit</button> <button class="button danger small delete-schedule" data-id="${item.id}">Delete</button>`}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty-state"><strong>No playing schedules yet</strong><p>Add your next court time on the left.</p></div></td></tr>`}</tbody></table></div></div></div>`;
   $("#schedule-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.target;
@@ -838,7 +863,7 @@ function showCourtModal(event = null) {
     <label>Location<input required name="location" value="${esc(event?.location || "")}" placeholder="Mati, Davao Oriental"></label>
     <label>Contact number<input required name="contact" value="${esc(event?.contact || "")}" placeholder="09XXXXXXXXX"></label>
     <label>Opening time<input required type="time" name="openingTime" value="${esc(event?.opening_time?.slice(0, 5) || "07:00")}"></label>
-    <label>Closing time<input required type="time" name="closingTime" value="${esc(event?.closing_time?.slice(0, 5) || "23:00")}"></label>
+    <label>Closing time<input required type="time" name="closingTime" value="${esc(closingInputValue(event?.closing_time))}" max="21:00"><small class="field-hint">Bookings end at 9:00 PM.</small></label>
     <label class="full-width">Amenities<input name="amenities" value="${esc(amenities)}" placeholder="Lights, Restrooms, Parking, Pickleball Court, Food & Coffee"></label>
     <label>Maximum players<input required type="number" min="1" name="maxParticipants" value="${event?.max_participants || 20}"></label>
      <label>Default booking fee<input required type="number" min="1" step="0.01" name="fee" value="${event?.fee || rulePrice(0)}"></label>

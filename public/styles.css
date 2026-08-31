@@ -2319,6 +2319,31 @@ button {
   line-height: 29px;
   color: var(--ink);
 }
+.date-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 160px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--muted);
+  font: 10px "DM Mono";
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.date-picker input {
+  min-width: 145px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 600 13px "DM Sans";
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+}
 .slot-board {
   overflow-x: auto;
   border: 1px solid var(--line);
@@ -2347,9 +2372,9 @@ button {
 .slot-cell {
   width: 100%;
   min-height: 60px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
   gap: 9px;
   padding: 13px 14px;
   border: 0;
@@ -2361,7 +2386,12 @@ button {
 .slot-cell:last-child {
   border-bottom: 0;
 }
-.slot-cell span {
+.slot-cell .slot-time {
+  color: var(--ink);
+  font: 600 13px "Space Grotesk";
+  letter-spacing: -0.01em;
+}
+.slot-cell .slot-state {
   font: 10px "DM Mono";
   letter-spacing: 0.04em;
 }

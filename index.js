@@ -427,7 +427,7 @@ app.get("/api/dashboard", requireAuth, asyncRoute(async (req, res) => {
     query("SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND read_at IS NULL", [req.user.id]),
     query(`SELECT name, event_date, location, slot_times, status FROM (
              SELECT e.name, MIN(cs.slot_date)::timestamptz AS event_date, e.location,
-               STRING_AGG(TO_CHAR(cs.start_time, 'HH12:MI AM') || '–' || TO_CHAR(cs.end_time, 'HH12:MI AM'), ', ' ORDER BY cs.start_time) AS slot_times,
+                STRING_AGG(TO_CHAR(cs.start_time, 'HH12:MI AM') || ' – ' || TO_CHAR(cs.end_time, 'HH12:MI AM'), CHR(10) ORDER BY cs.start_time) AS slot_times,
                r.status, MIN(cs.start_time) AS start_time
              FROM registrations r
              JOIN events e ON e.id = r.event_id
@@ -575,7 +575,7 @@ app.get("/api/slots", asyncRoute(async (req, res) => {
     FROM court_slots cs
     LEFT JOIN registration_slots rs ON rs.slot_id = cs.id
     LEFT JOIN registrations r ON r.id = rs.registration_id AND r.status <> 'cancelled'
-    WHERE cs.event_id = $1 AND cs.slot_date = $3
+      WHERE cs.event_id = $1 AND cs.slot_date = $3 AND cs.start_time < TIME '21:00'
     ORDER BY cs.start_time ASC`, [courtId, req.session.user?.id || 0, date]);
   res.json({ court: court.rows[0], slots: slots.rows });
 }));
@@ -628,7 +628,7 @@ app.get("/api/registrations", requireAuth, asyncRoute(async (req, res) => {
       COALESCE((SELECT MIN(cs.slot_date) FROM registration_slots rs JOIN court_slots cs ON cs.id = rs.slot_id WHERE rs.registration_id = r.id), e.event_date::date) AS booking_date,
       e.location, e.category, e.fee,
       (SELECT p.status FROM payments p WHERE p.registration_id = r.id ORDER BY p.submitted_at DESC LIMIT 1) AS payment_status,
-      (SELECT STRING_AGG(TO_CHAR(cs.start_time, 'HH12:MI AM') || '–' || TO_CHAR(cs.end_time, 'HH12:MI AM'), ', ' ORDER BY cs.start_time)
+      (SELECT STRING_AGG(TO_CHAR(cs.start_time, 'HH12:MI AM') || ' – ' || TO_CHAR(cs.end_time, 'HH12:MI AM'), CHR(10) ORDER BY cs.start_time)
        FROM registration_slots rs JOIN court_slots cs ON cs.id = rs.slot_id WHERE rs.registration_id = r.id) AS slot_times
     FROM registrations r JOIN events e ON e.id = r.event_id
     WHERE r.user_id = $1 ORDER BY e.event_date DESC`, [req.user.id]);
@@ -661,8 +661,8 @@ app.get("/api/schedules", requireAuth, asyncRoute(async (req, res) => {
     FROM schedules s
     WHERE s.user_id = $1
     UNION ALL
-    SELECT -r.id AS id, e.name AS title, MIN(cs.slot_date) AS schedule_date,
-      MIN(cs.start_time) AS start_time, MAX(cs.end_time) AS end_time, e.location,
+    SELECT -((r.id * 1000000) + cs.id) AS id, e.name AS title, cs.slot_date AS schedule_date,
+      cs.start_time, cs.end_time, e.location,
       CONCAT('Court booking · ', INITCAP(r.status)) AS notes,
       r.registered_at AS created_at, r.registered_at AS updated_at,
       'booking' AS source, r.status AS booking_status
@@ -671,7 +671,6 @@ app.get("/api/schedules", requireAuth, asyncRoute(async (req, res) => {
     JOIN registration_slots rs ON rs.registration_id = r.id
     JOIN court_slots cs ON cs.id = rs.slot_id
     WHERE r.user_id = $1 AND r.status <> 'cancelled'
-    GROUP BY r.id, e.id, e.name, e.location, r.status, r.registered_at
     ORDER BY schedule_date ASC, start_time ASC`,
     [req.user.id]
   );
@@ -1061,14 +1060,14 @@ function eventValues(body, imagePath = "") {
   const imageUrl = imagePath || clean(body.imageUrl, 1000);
   const contact = clean(body.contact, 40);
   const openingTime = clean(body.openingTime || "07:00", 5);
-  const closingTime = clean(body.closingTime || "23:00", 5);
+  const closingTime = clean(body.closingTime || "21:00", 5);
   const amenities = courtAmenities(body.amenities);
   const rateRules = courtRateRules(body);
   const openingMinutes = timeMinutes(openingTime);
   const closingMinutes = timeMinutes(closingTime);
   const validImage = imageUrl && (/^\/court-images\/[A-Za-z0-9._-]+$/.test(imageUrl) || /^https?:\/\/\S+$/i.test(imageUrl));
-  if (!name || !isDate(eventDate) || !location || !description || !category || !surface || !Number.isFinite(fee) || fee <= 0 || !Number.isInteger(maxParticipants) || maxParticipants < 1 || !["draft", "published", "closed", "cancelled"].includes(status) || !validImage || !isPhone(contact) || Number.isNaN(openingMinutes) || Number.isNaN(closingMinutes) || closingMinutes <= openingMinutes || !rateRules.length) {
-    return { error: "Complete the court details, image, contact, hours, and at least one valid rate." };
+  if (!name || !isDate(eventDate) || !location || !description || !category || !surface || !Number.isFinite(fee) || fee <= 0 || !Number.isInteger(maxParticipants) || maxParticipants < 1 || !["draft", "published", "closed", "cancelled"].includes(status) || !validImage || !isPhone(contact) || Number.isNaN(openingMinutes) || Number.isNaN(closingMinutes) || closingMinutes <= openingMinutes || closingMinutes > 21 * 60 || !rateRules.length) {
+    return { error: "Complete the court details, image, contact, hours until 9:00 PM, and at least one valid rate." };
   }
   return {
     params: [name, eventDate, location, description, category, fee, maxParticipants, status, imageUrl, surface, contact, openingTime, closingTime, JSON.stringify(amenities), JSON.stringify(rateRules)]
@@ -1079,7 +1078,7 @@ async function ensureCourtSlots(eventId, date) {
   const court = await query("SELECT opening_time, closing_time, fee, rate_rules FROM events WHERE id = $1 AND status = 'published'", [eventId]);
   if (!court.rowCount) return;
   const opening = timeMinutes(String(court.rows[0].opening_time).slice(0, 5));
-  const closing = timeMinutes(String(court.rows[0].closing_time).slice(0, 5));
+  const closing = Math.min(timeMinutes(String(court.rows[0].closing_time).slice(0, 5)), 21 * 60);
   const rules = jsonArray(court.rows[0].rate_rules);
   const fallbackPrice = Number(court.rows[0].fee || 0);
   const standardRule = rules.find((rule) => rule.label === "Standard rate");
