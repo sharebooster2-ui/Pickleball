@@ -920,7 +920,7 @@ app.delete("/api/admin/events/:id", requireAdmin, asyncRoute(async (req, res) =>
 
 app.get("/api/admin/registrations", requireAdmin, asyncRoute(async (req, res) => {
   const result = await query(`
-    SELECT r.id, r.status, r.registered_at, e.name AS event_name, e.event_date, u.email, p.full_name,
+    SELECT r.id, r.status, r.registered_at, e.name AS event_name, e.event_date, u.email, p.full_name, p.phone,
       (SELECT status FROM payments WHERE registration_id = r.id ORDER BY submitted_at DESC LIMIT 1) AS payment_status,
       (SELECT STRING_AGG(TO_CHAR(cs.start_time, 'HH12:MI AM') || '–' || TO_CHAR(cs.end_time, 'HH12:MI AM'), ', ' ORDER BY cs.start_time)
        FROM registration_slots rs JOIN court_slots cs ON cs.id = rs.slot_id WHERE rs.registration_id = r.id) AS slot_times
@@ -953,7 +953,7 @@ app.patch("/api/admin/registrations/:id", requireAdmin, asyncRoute(async (req, r
 
 app.get("/api/admin/payments", requireAdmin, asyncRoute(async (req, res) => {
   const result = await query(`
-    SELECT p.*, e.name AS event_name, e.fee, u.email, pr.full_name
+    SELECT p.*, e.name AS event_name, e.fee, u.email, pr.full_name, pr.phone
     FROM payments p JOIN events e ON e.id = p.event_id JOIN users u ON u.id = p.user_id JOIN profiles pr ON pr.user_id = u.id
     ORDER BY CASE WHEN p.status = 'pending' THEN 0 ELSE 1 END, p.submitted_at DESC`);
   res.json({ payments: result.rows });

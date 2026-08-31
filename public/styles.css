@@ -1091,6 +1091,10 @@ button {
   gap: 9px;
   font-weight: 600;
 }
+.admin-phone {
+  color: var(--green);
+  font: 10px "DM Mono";
+}
 .mini-avatar {
   background: #dfeee0;
   color: var(--green);
