@@ -727,6 +727,27 @@ async function renderProfile() {
   const p = data.profile;
   $("#page-container").innerHTML =
     `<div class="page"><div class="page-heading"><div><p class="eyebrow">YOUR PICKLEBALLS IDENTITY</p><h1>My profile</h1><p>Keep your player details up to date.</p></div></div><div class="profile-layout"><div class="card profile-card"><div class="profile-big">${initials(p.full_name)}</div><h2>${esc(p.full_name)}</h2><p>${esc(p.email)}</p><div class="profile-facts"><div class="profile-fact"><span>Skill level</span><strong>${esc(p.skill_level || "Beginner")}</strong></div><div class="profile-fact"><span>City</span><strong>${esc(p.city || "Not set")}</strong></div><div class="profile-fact"><span>Phone</span><strong>${esc(p.phone || "Not set")}</strong></div></div></div><div class="card"><div class="card-title"><h3>Edit details</h3><span class="pill confirmed">Member</span></div><form id="profile-form" class="profile-form"><label class="field-label full-width">Full name<input required class="field-input" name="fullName" value="${esc(p.full_name)}"></label><label class="field-label">Phone number<input class="field-input" name="phone" value="${esc(p.phone || "")}" placeholder="09xx xxx xxxx"></label><label class="field-label">City<input class="field-input" name="city" value="${esc(p.city || "")}" placeholder="Manila"></label><label class="field-label">Skill level<select class="field-input" name="skillLevel">${["Beginner", "Intermediate", "Advanced", "Pro"].map((level) => `<option ${p.skill_level === level ? "selected" : ""}>${level}</option>`).join("")}</select></label><button class="button primary full-width" type="submit">Save changes ↗</button></form></div></div></div>`;
+  $("#profile-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.target.querySelector("button[type=submit]");
+    const values = Object.fromEntries(new FormData(event.target));
+    setBusy(button, true, "Saving…");
+    try {
+      await api("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      state.user.fullName = values.fullName;
+      toast("Profile updated successfully.");
+      await renderProfile();
+      updateUserChrome();
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
+  });
 }
 
 // Renders notifications and marks them as read.
