@@ -52,7 +52,7 @@ const confirmationPill = (status) => {
     fully_confirmed: ["confirmed", "Fully confirmed"],
     pending_approval: ["pending", "Pending approval"],
     payment_pending: ["pending", "Payment under review"],
-    awaiting_payment: ["pending", "Awaiting payment"],
+    awaiting_payment: ["confirmed", "Confirmed"],
     cancelled: ["cancelled", "Cancelled"],
   };
   const [className, label] = statuses[status] || statuses.pending_approval;
@@ -380,7 +380,7 @@ async function renderDashboard() {
       <div class="stat-card"><div class="stat-top"><span>Unread updates</span><span class="stat-icon">◌</span></div><div class="stat-value">${dashboard.unreadNotifications}</div><div class="stat-help">From PickleBalls admins</div></div></div>
     <div class="section-heading"><div><p class="eyebrow">BOOK YOUR NEXT GAME</p><h2 class="section-title">Courts near you</h2><p class="section-subtitle">Choose a court, check the details, and save your playing time.</p></div><button class="text-link" data-page="events">View all courts →</button></div>
     <div class="court-grid">${events.events.slice(0, 3).map(courtCard).join("") || `<div class="card empty-courts"><div class="empty-state"><div>⌖</div><strong>No courts available yet</strong><p>New courts will appear here when they are published.</p></div></div>`}</div>
-      <div class="dashboard-grid"><div class="card"><div class="card-title"><h3>Next on your calendar</h3><button class="text-link" data-page="registrations">View all →</button></div>${next ? `<div class="next-event"><span class="event-status">${esc(next.status === "confirmed" ? "Confirmed" : "Booking request")}</span><p class="eyebrow">UPCOMING EVENT</p><h3>${esc(next.name)}</h3><div class="event-meta"><span>◷ ${dateText(next.event_date)}${next.slot_times ? ` · ${esc(next.slot_times).replaceAll("\\n", "<br>")}` : ""}</span><span>⌖ ${esc(next.location)}</span></div></div>` : `<div class="empty-state"><div>✦</div><strong>No games booked yet</strong><p>Find an event and save your first spot.</p><button class="button primary small" data-page="events" style="margin-top:15px">Browse events</button></div>`}</div>
+     <div class="dashboard-grid"><div class="card"><div class="card-title"><h3>Next on your calendar</h3><button class="text-link" data-page="registrations">View all →</button></div>${next ? `<div class="next-event"><span class="event-status">${confirmationPill(next.confirmation_status || (next.status === "confirmed" ? "awaiting_payment" : "pending_approval"))}</span><p class="eyebrow">UPCOMING EVENT</p><h3>${esc(next.name)}</h3><div class="event-meta"><span>◷ ${dateText(next.event_date)}${next.slot_times ? ` · ${esc(next.slot_times).replaceAll("\\n", "<br>")}` : ""}</span><span>⌖ ${esc(next.location)}</span></div></div>` : `<div class="empty-state"><div>✦</div><strong>No games booked yet</strong><p>Find an event and save your first spot.</p><button class="button primary small" data-page="events" style="margin-top:15px">Browse events</button></div>`}</div>
       <div class="card"><div class="card-title"><h3>Recent activity</h3><button class="text-link" data-page="notifications">See updates →</button></div><div class="activity-list">${
         notifications.notifications
           .slice(0, 3)
