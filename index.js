@@ -20,7 +20,9 @@ databaseUrl = databaseUrl?.trim().replace(/^['"`]+|['"`]+$/g, "").split("?")[0];
 if (!databaseUrl) throw new Error("NEON_DATABASE_URL is required.");
 const sql = neon(databaseUrl);
 
-const uploadDir = path.join(__dirname, "uploads");
+const uploadDir = process.env.VERCEL
+  ? path.join("/tmp", "pickleballs-uploads")
+  : path.join(__dirname, "uploads");
 fs.mkdirSync(uploadDir, { recursive: true });
 
 app.use(express.json({ limit: "1mb" }));
