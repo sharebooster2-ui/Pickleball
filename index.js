@@ -848,12 +848,36 @@ app.patch("/api/admin/users/:id/admin-approval", requireSuperAdmin, asyncRoute(a
 
 app.get("/api/admin/schedules", requireAdmin, asyncRoute(async (req, res) => {
   const result = await query(`
-    SELECT s.*, p.full_name, u.email,
+    SELECT s.id, s.title, s.schedule_date, s.start_time, s.end_time, s.location, s.notes,
+      s.created_at, s.updated_at, 'manual' AS source, NULL::varchar AS booking_status,
+      p.full_name, p.phone, u.email,
       CASE WHEN s.schedule_date < CURRENT_DATE
         OR (s.schedule_date = CURRENT_DATE AND COALESCE(s.end_time, s.start_time) <= LOCALTIME)
         THEN TRUE ELSE FALSE END AS completed
-    FROM schedules s JOIN users u ON u.id = s.user_id JOIN profiles p ON p.user_id = u.id
-    ORDER BY s.schedule_date ASC, s.start_time ASC`);
+    FROM schedules s
+    JOIN users u ON u.id = s.user_id
+    JOIN profiles p ON p.user_id = u.id
+
+    UNION ALL
+
+    SELECT -((r.id * 1000000) + cs.id) AS id, e.name AS title, cs.slot_date AS schedule_date,
+      cs.start_time, cs.end_time, e.location,
+      CONCAT('Court booking · ', INITCAP(r.status)) AS notes,
+      r.registered_at AS created_at, r.registered_at AS updated_at,
+      'booking' AS source, r.status AS booking_status,
+      p.full_name, p.phone, u.email,
+      CASE WHEN cs.slot_date < CURRENT_DATE
+        OR (cs.slot_date = CURRENT_DATE AND cs.end_time <= LOCALTIME)
+        THEN TRUE ELSE FALSE END AS completed
+    FROM registrations r
+    JOIN events e ON e.id = r.event_id
+    JOIN registration_slots rs ON rs.registration_id = r.id
+    JOIN court_slots cs ON cs.id = rs.slot_id
+    JOIN users u ON u.id = r.user_id
+    JOIN profiles p ON p.user_id = u.id
+    WHERE r.status <> 'cancelled'
+
+    ORDER BY schedule_date ASC, start_time ASC`);
   res.json({ schedules: result.rows });
 }));
 
