@@ -636,10 +636,22 @@ app.get("/api/registrations", requireAuth, asyncRoute(async (req, res) => {
     SELECT r.id, r.status, r.registered_at, e.id AS event_id, e.name, e.event_date,
       COALESCE((SELECT MIN(cs.slot_date) FROM registration_slots rs JOIN court_slots cs ON cs.id = rs.slot_id WHERE rs.registration_id = r.id), e.event_date::date) AS booking_date,
       e.location, e.category, e.fee,
-      (SELECT p.status FROM payments p WHERE p.registration_id = r.id ORDER BY p.submitted_at DESC LIMIT 1) AS payment_status,
+      latest_payment.status AS payment_status,
+      CASE
+        WHEN latest_payment.status = 'verified' THEN 'fully_confirmed'
+        WHEN latest_payment.status = 'pending' THEN 'payment_pending'
+        WHEN r.status = 'confirmed' THEN 'awaiting_payment'
+        ELSE 'pending_approval'
+      END AS confirmation_status,
       (SELECT STRING_AGG(TO_CHAR(cs.start_time, 'HH12:MI AM') || ' – ' || TO_CHAR(cs.end_time, 'HH12:MI AM'), CHR(10) ORDER BY cs.start_time)
        FROM registration_slots rs JOIN court_slots cs ON cs.id = rs.slot_id WHERE rs.registration_id = r.id) AS slot_times
     FROM registrations r JOIN events e ON e.id = r.event_id
+    LEFT JOIN LATERAL (
+      SELECT p.status FROM payments p
+      WHERE p.registration_id = r.id
+      ORDER BY p.submitted_at DESC
+      LIMIT 1
+    ) latest_payment ON TRUE
     WHERE r.user_id = $1 ORDER BY e.event_date DESC`, [req.user.id]);
   res.json({ registrations: result.rows });
 }));
@@ -667,6 +679,7 @@ app.get("/api/schedules", requireAuth, asyncRoute(async (req, res) => {
   const result = await query(`
     SELECT s.id, s.title, s.schedule_date, s.start_time, s.end_time, s.location, s.notes,
       s.created_at, s.updated_at, 'manual' AS source, NULL::varchar AS booking_status,
+      NULL::varchar AS payment_status, 'fully_confirmed' AS confirmation_status,
       CASE WHEN s.schedule_date < CURRENT_DATE
         OR (s.schedule_date = CURRENT_DATE AND COALESCE(s.end_time, s.start_time) <= LOCALTIME)
         THEN TRUE ELSE FALSE END AS completed
@@ -678,6 +691,13 @@ app.get("/api/schedules", requireAuth, asyncRoute(async (req, res) => {
       CONCAT('Court booking · ', INITCAP(r.status)) AS notes,
       r.registered_at AS created_at, r.registered_at AS updated_at,
       'booking' AS source, r.status AS booking_status,
+      latest_payment.status AS payment_status,
+      CASE
+        WHEN latest_payment.status = 'verified' THEN 'fully_confirmed'
+        WHEN latest_payment.status = 'pending' THEN 'payment_pending'
+        WHEN r.status = 'confirmed' THEN 'awaiting_payment'
+        ELSE 'pending_approval'
+      END AS confirmation_status,
       CASE WHEN cs.slot_date < CURRENT_DATE
         OR (cs.slot_date = CURRENT_DATE AND cs.end_time <= LOCALTIME)
         THEN TRUE ELSE FALSE END AS completed
@@ -685,6 +705,12 @@ app.get("/api/schedules", requireAuth, asyncRoute(async (req, res) => {
     JOIN events e ON e.id = r.event_id
     JOIN registration_slots rs ON rs.registration_id = r.id
     JOIN court_slots cs ON cs.id = rs.slot_id
+    LEFT JOIN LATERAL (
+      SELECT p.status FROM payments p
+      WHERE p.registration_id = r.id
+      ORDER BY p.submitted_at DESC
+      LIMIT 1
+    ) latest_payment ON TRUE
     WHERE r.user_id = $1 AND r.status <> 'cancelled'
     ORDER BY schedule_date ASC, start_time ASC`,
     [req.user.id]
@@ -850,6 +876,7 @@ app.get("/api/admin/schedules", requireAdmin, asyncRoute(async (req, res) => {
   const result = await query(`
     SELECT s.id, s.title, s.schedule_date, s.start_time, s.end_time, s.location, s.notes,
       s.created_at, s.updated_at, 'manual' AS source, NULL::varchar AS booking_status,
+      NULL::varchar AS payment_status, 'fully_confirmed' AS confirmation_status,
       p.full_name, p.phone, u.email,
       CASE WHEN s.schedule_date < CURRENT_DATE
         OR (s.schedule_date = CURRENT_DATE AND COALESCE(s.end_time, s.start_time) <= LOCALTIME)
@@ -865,6 +892,13 @@ app.get("/api/admin/schedules", requireAdmin, asyncRoute(async (req, res) => {
       CONCAT('Court booking · ', INITCAP(r.status)) AS notes,
       r.registered_at AS created_at, r.registered_at AS updated_at,
       'booking' AS source, r.status AS booking_status,
+      latest_payment.status AS payment_status,
+      CASE
+        WHEN latest_payment.status = 'verified' THEN 'fully_confirmed'
+        WHEN latest_payment.status = 'pending' THEN 'payment_pending'
+        WHEN r.status = 'confirmed' THEN 'awaiting_payment'
+        ELSE 'pending_approval'
+      END AS confirmation_status,
       p.full_name, p.phone, u.email,
       CASE WHEN cs.slot_date < CURRENT_DATE
         OR (cs.slot_date = CURRENT_DATE AND cs.end_time <= LOCALTIME)
@@ -875,6 +909,12 @@ app.get("/api/admin/schedules", requireAdmin, asyncRoute(async (req, res) => {
     JOIN court_slots cs ON cs.id = rs.slot_id
     JOIN users u ON u.id = r.user_id
     JOIN profiles p ON p.user_id = u.id
+    LEFT JOIN LATERAL (
+      SELECT payment.status FROM payments payment
+      WHERE payment.registration_id = r.id
+      ORDER BY payment.submitted_at DESC
+      LIMIT 1
+    ) latest_payment ON TRUE
     WHERE r.status <> 'cancelled'
 
     ORDER BY schedule_date ASC, start_time ASC`);
@@ -945,10 +985,22 @@ app.delete("/api/admin/events/:id", requireAdmin, asyncRoute(async (req, res) =>
 app.get("/api/admin/registrations", requireAdmin, asyncRoute(async (req, res) => {
   const result = await query(`
     SELECT r.id, r.status, r.registered_at, e.name AS event_name, e.event_date, u.email, p.full_name, p.phone,
-      (SELECT status FROM payments WHERE registration_id = r.id ORDER BY submitted_at DESC LIMIT 1) AS payment_status,
+      latest_payment.status AS payment_status,
+      CASE
+        WHEN latest_payment.status = 'verified' THEN 'fully_confirmed'
+        WHEN latest_payment.status = 'pending' THEN 'payment_pending'
+        WHEN r.status = 'confirmed' THEN 'awaiting_payment'
+        ELSE 'pending_approval'
+      END AS confirmation_status,
       (SELECT STRING_AGG(TO_CHAR(cs.start_time, 'HH12:MI AM') || '–' || TO_CHAR(cs.end_time, 'HH12:MI AM'), ', ' ORDER BY cs.start_time)
        FROM registration_slots rs JOIN court_slots cs ON cs.id = rs.slot_id WHERE rs.registration_id = r.id) AS slot_times
     FROM registrations r JOIN events e ON e.id = r.event_id JOIN users u ON u.id = r.user_id JOIN profiles p ON p.user_id = u.id
+    LEFT JOIN LATERAL (
+      SELECT payment.status FROM payments payment
+      WHERE payment.registration_id = r.id
+      ORDER BY payment.submitted_at DESC
+      LIMIT 1
+    ) latest_payment ON TRUE
     ORDER BY r.registered_at DESC`);
   res.json({ registrations: result.rows });
 }));
