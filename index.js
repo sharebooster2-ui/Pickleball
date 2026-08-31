@@ -73,6 +73,15 @@ app.use(session({
     maxAge: 1000 * 60 * 60 * 24 * 7
   }
 }));
+app.use((req, res, next) => {
+  const sensitiveKeys = new Set(["email", "password", "fullName", "phone"]);
+  const hasSensitiveQuery = req.method === "GET"
+    && Object.keys(req.query).some((key) => sensitiveKeys.has(key));
+  if (!hasSensitiveQuery) return next();
+  const safeUrl = new URL(req.originalUrl, "http://localhost");
+  sensitiveKeys.forEach((key) => safeUrl.searchParams.delete(key));
+  return res.redirect(302, `${safeUrl.pathname}${safeUrl.search}${safeUrl.hash}`);
+});
 app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] }));
 
 const upload = multer({

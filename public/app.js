@@ -84,6 +84,22 @@ const localDate = (date = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
+function removeSensitiveQueryParams() {
+  const url = new URL(window.location.href);
+  const sensitiveKeys = ["email", "password", "fullName", "phone"];
+  const hadSensitiveQuery = sensitiveKeys.some((key) =>
+    url.searchParams.has(key),
+  );
+  if (!hadSensitiveQuery) return;
+  sensitiveKeys.forEach((key) => url.searchParams.delete(key));
+  window.history.replaceState(
+    {},
+    document.title,
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+}
+removeSensitiveQueryParams();
+
 const courtRules = (court) => {
   try {
     return Array.isArray(court.rate_rules)
