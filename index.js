@@ -20,11 +20,6 @@ databaseUrl = databaseUrl?.trim().replace(/^['"`]+|['"`]+$/g, "").split("?")[0];
 if (!databaseUrl) throw new Error("NEON_DATABASE_URL is required.");
 const sql = neon(databaseUrl);
 
-const uploadDir = process.env.VERCEL
-  ? path.join("/tmp", "pickleballs-uploads")
-  : path.join(__dirname, "uploads");
-fs.mkdirSync(uploadDir, { recursive: true });
-
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -81,13 +76,7 @@ app.use(session({
 app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] }));
 
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: uploadDir,
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
-    }
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = ["image/jpeg", "image/png", "image/webp"];
@@ -135,21 +124,27 @@ function requireMember(req, res, next) {
 }
 
 app.get("/uploads/:filename", requireAuth, asyncRoute(async (req, res) => {
-  const filename = path.basename(req.params.filename);
-  const proofPath = `/uploads/${filename}`;
-  const proof = await query("SELECT user_id FROM payments WHERE proof_path = $1", [proofPath]);
-  if (!proof.rowCount || (req.user.role !== "admin" && proof.rows[0].user_id !== req.user.id)) {
+  const fileId = clean(req.params.filename, 100);
+  const proof = await query(`
+    SELECT f.original_name, f.content_type, encode(f.data, 'base64') AS data_base64
+    FROM uploads f
+    JOIN payments p ON p.proof_path = $1
+    WHERE f.id = $2 AND (p.user_id = $3 OR $4 = TRUE)
+    LIMIT 1`, [`/uploads/${fileId}`, fileId, req.user.id, req.user.role === "admin"]);
+  if (!proof.rowCount) {
     return res.status(404).json({ error: "Payment proof not found." });
   }
-  res.sendFile(path.join(uploadDir, filename));
+  sendStoredFile(res, proof.rows[0]);
 }));
 
-app.get("/court-images/:filename", requireAuth, (req, res) => {
-  const filename = path.basename(req.params.filename);
-  res.sendFile(path.join(uploadDir, filename), (error) => {
-    if (error && !res.headersSent) res.status(error.code === "ENOENT" ? 404 : 500).json({ error: "Court image not found." });
-  });
-});
+app.get("/court-images/:filename", requireAuth, asyncRoute(async (req, res) => {
+  const fileId = clean(req.params.filename, 100);
+  const result = await query(`
+    SELECT original_name, content_type, encode(data, 'base64') AS data_base64
+    FROM uploads WHERE id = $1`, [fileId]);
+  if (!result.rowCount) return res.status(404).json({ error: "Court image not found." });
+  sendStoredFile(res, result.rows[0]);
+}));
 
 async function query(text, params = []) {
   const normalizedText = text.trim().replace(/;\s*$/, "");
@@ -172,6 +167,29 @@ async function query(text, params = []) {
 
 function passwordResetTokenHash(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function newUploadId() {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+async function saveUpload(file, id) {
+  await query(`
+    INSERT INTO uploads (id, original_name, content_type, data)
+    VALUES ($1, $2, $3, decode($4, 'base64'))`,
+    [id, clean(file.originalname, 255) || "upload", file.mimetype, file.buffer.toString("base64")]
+  );
+}
+
+async function deleteUpload(id) {
+  await query("DELETE FROM uploads WHERE id = $1", [id]);
+}
+
+function sendStoredFile(res, file) {
+  res.set("Content-Type", file.content_type || "application/octet-stream");
+  res.set("Content-Disposition", `inline; filename="${String(file.original_name || "upload").replace(/["\r\n]/g, "")}"`);
+  res.set("Cache-Control", "private, max-age=3600");
+  res.send(Buffer.from(file.data_base64, "base64"));
 }
 
 function getPasswordResetMailer() {
@@ -708,22 +726,27 @@ app.post("/api/payments", requireAuth, upload.single("proof"), asyncRoute(async 
     SELECT r.*, e.name, e.fee FROM registrations r JOIN events e ON e.id = r.event_id
     WHERE r.id = $1 AND r.user_id = $2`, [registrationId, req.user.id]);
   if (!registration.rowCount || !Number.isFinite(amount) || amount < 0 || !reference || !isDate(paymentDate)) {
-    fs.unlinkSync(req.file.path);
     return res.status(400).json({ error: "Complete the payment form with a valid amount, reference number, and date." });
   }
   if (registration.rows[0].status !== "confirmed") {
-    fs.unlinkSync(req.file.path);
     return res.status(400).json({ error: "Your registration must be approved by an admin before submitting payment." });
   }
   if (amount !== Number(registration.rows[0].fee)) {
-    fs.unlinkSync(req.file.path);
     return res.status(400).json({ error: `The amount must match the registration fee of ₱${Number(registration.rows[0].fee).toLocaleString()}.` });
   }
-  const result = await query(`
-    INSERT INTO payments (registration_id, user_id, event_id, amount, reference_number, payment_date, proof_path, notes)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [registrationId, req.user.id, registration.rows[0].event_id, amount, reference, paymentDate, `/uploads/${req.file.filename}`, notes]
-  );
+  const fileId = newUploadId();
+  await saveUpload(req.file, fileId);
+  let result;
+  try {
+    result = await query(`
+      INSERT INTO payments (registration_id, user_id, event_id, amount, reference_number, payment_date, proof_path, notes)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [registrationId, req.user.id, registration.rows[0].event_id, amount, reference, paymentDate, `/uploads/${fileId}`, notes]
+    );
+  } catch (error) {
+    await deleteUpload(fileId).catch(() => {});
+    throw error;
+  }
   await createNotification(req.user.id, "Payment proof submitted", `Your proof for ${registration.rows[0].name} is now pending admin review.`, "info");
   res.status(201).json({ paymentId: result.rows[0].id });
 }));
@@ -830,30 +853,44 @@ app.get("/api/admin/events", requireAdmin, asyncRoute(async (req, res) => {
 }));
 
 app.post("/api/admin/events", requireAdmin, upload.single("image"), asyncRoute(async (req, res) => {
-  const values = eventValues(req.body, req.file ? `/court-images/${req.file.filename}` : "");
+  const fileId = req.file ? newUploadId() : "";
+  const values = eventValues(req.body, fileId ? `/court-images/${fileId}` : "");
   if (values.error) {
-    if (req.file) fs.unlink(req.file.path, () => {});
     return res.status(400).json({ error: values.error });
   }
-  const result = await query(`
-    INSERT INTO events (name, event_date, location, description, category, fee, max_participants, status, image_url, surface, contact, opening_time, closing_time, amenities, rate_rules)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb) RETURNING *`, values.params);
+  if (req.file) await saveUpload(req.file, fileId);
+  let result;
+  try {
+    result = await query(`
+      INSERT INTO events (name, event_date, location, description, category, fee, max_participants, status, image_url, surface, contact, opening_time, closing_time, amenities, rate_rules)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb) RETURNING *`, values.params);
+  } catch (error) {
+    if (fileId) await deleteUpload(fileId).catch(() => {});
+    throw error;
+  }
   res.status(201).json({ event: result.rows[0] });
 }));
 
 app.put("/api/admin/events/:id", requireAdmin, upload.single("image"), asyncRoute(async (req, res) => {
   const existing = await query("SELECT image_url, rate_rules FROM events WHERE id = $1", [Number(req.params.id)]);
-  const imagePath = req.file ? `/court-images/${req.file.filename}` : (clean(req.body.imageUrl, 1000) || existing.rows[0]?.image_url || "");
+  const fileId = req.file ? newUploadId() : "";
+  const imagePath = fileId ? `/court-images/${fileId}` : (clean(req.body.imageUrl, 1000) || existing.rows[0]?.image_url || "");
   const body = { ...req.body };
   if (!body.rateRules && existing.rows[0]?.rate_rules) body.rateRules = JSON.stringify(existing.rows[0].rate_rules);
   const values = eventValues(body, imagePath);
   if (values.error) {
-    if (req.file) fs.unlink(req.file.path, () => {});
     return res.status(400).json({ error: values.error });
   }
-  const result = await query(`
-    UPDATE events SET name=$1, event_date=$2, location=$3, description=$4, category=$5, fee=$6, max_participants=$7, status=$8, image_url=$9, surface=$10, contact=$11, opening_time=$12, closing_time=$13, amenities=$14::jsonb, rate_rules=$15::jsonb, updated_at=NOW()
-    WHERE id=$16 RETURNING *`, [...values.params, Number(req.params.id)]);
+  if (req.file) await saveUpload(req.file, fileId);
+  let result;
+  try {
+    result = await query(`
+      UPDATE events SET name=$1, event_date=$2, location=$3, description=$4, category=$5, fee=$6, max_participants=$7, status=$8, image_url=$9, surface=$10, contact=$11, opening_time=$12, closing_time=$13, amenities=$14::jsonb, rate_rules=$15::jsonb, updated_at=NOW()
+      WHERE id=$16 RETURNING *`, [...values.params, Number(req.params.id)]);
+  } catch (error) {
+    if (fileId) await deleteUpload(fileId).catch(() => {});
+    throw error;
+  }
   if (!result.rowCount) return res.status(404).json({ error: "Event not found." });
   res.json({ event: result.rows[0] });
 }));
