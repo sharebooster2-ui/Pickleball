@@ -657,7 +657,10 @@ app.put("/api/profile", requireAuth, asyncRoute(async (req, res) => {
 app.get("/api/schedules", requireAuth, asyncRoute(async (req, res) => {
   const result = await query(`
     SELECT s.id, s.title, s.schedule_date, s.start_time, s.end_time, s.location, s.notes,
-      s.created_at, s.updated_at, 'manual' AS source, NULL::varchar AS booking_status
+      s.created_at, s.updated_at, 'manual' AS source, NULL::varchar AS booking_status,
+      CASE WHEN s.schedule_date < CURRENT_DATE
+        OR (s.schedule_date = CURRENT_DATE AND COALESCE(s.end_time, s.start_time) <= LOCALTIME)
+        THEN TRUE ELSE FALSE END AS completed
     FROM schedules s
     WHERE s.user_id = $1
     UNION ALL
@@ -665,7 +668,10 @@ app.get("/api/schedules", requireAuth, asyncRoute(async (req, res) => {
       cs.start_time, cs.end_time, e.location,
       CONCAT('Court booking · ', INITCAP(r.status)) AS notes,
       r.registered_at AS created_at, r.registered_at AS updated_at,
-      'booking' AS source, r.status AS booking_status
+      'booking' AS source, r.status AS booking_status,
+      CASE WHEN cs.slot_date < CURRENT_DATE
+        OR (cs.slot_date = CURRENT_DATE AND cs.end_time <= LOCALTIME)
+        THEN TRUE ELSE FALSE END AS completed
     FROM registrations r
     JOIN events e ON e.id = r.event_id
     JOIN registration_slots rs ON rs.registration_id = r.id
@@ -833,7 +839,10 @@ app.patch("/api/admin/users/:id/admin-approval", requireSuperAdmin, asyncRoute(a
 
 app.get("/api/admin/schedules", requireAdmin, asyncRoute(async (req, res) => {
   const result = await query(`
-    SELECT s.*, p.full_name, u.email
+    SELECT s.*, p.full_name, u.email,
+      CASE WHEN s.schedule_date < CURRENT_DATE
+        OR (s.schedule_date = CURRENT_DATE AND COALESCE(s.end_time, s.start_time) <= LOCALTIME)
+        THEN TRUE ELSE FALSE END AS completed
     FROM schedules s JOIN users u ON u.id = s.user_id JOIN profiles p ON p.user_id = u.id
     ORDER BY s.schedule_date ASC, s.start_time ASC`);
   res.json({ schedules: result.rows });

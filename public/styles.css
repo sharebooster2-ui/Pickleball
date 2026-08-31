@@ -1130,6 +1130,23 @@ button {
   background: #eef1ef;
   color: #738079;
 }
+.pill.completed {
+  background: #e8ecea;
+  color: #687770;
+}
+.completed-row td {
+  color: #87938d;
+  background: #fafbfa;
+}
+.completed-row strong {
+  color: #687770;
+}
+.admin-approval-notice {
+  margin: 0 12px 16px;
+  color: #7c5b1d;
+  background: #fff8e8;
+  border-color: #f0dfb4;
+}
 .filter-row {
   display: flex;
   gap: 10px;
